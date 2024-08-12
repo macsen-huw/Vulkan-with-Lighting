@@ -24,6 +24,8 @@ layout(set = 1, binding = 3) uniform sampler2D uNormal;
 
 layout( push_constant ) uniform PushConstants {
 	int normalMapEnabled;
+	float lightPosX, lightPosY, lightPosZ;
+	float lightColX, lightColY, lightColZ;
 
 } pushConstants;
 
@@ -43,6 +45,8 @@ void main()
 
 	vec3 lPos = { -0.2972, 7.3100, -11.9532 };
 	vec3 lCol = { 1.f, 1.f, 1.f };
+	vec3 lightPosition = {pushConstants.lightPosX, pushConstants.lightPosY, pushConstants.lightPosZ};
+	vec3 lightColour = {pushConstants.lightColX, pushConstants.lightColY, pushConstants.lightColZ};
 
 	//Get roughness and metalness from the respective maps
 	float roughness = texture(uRoughness, v2fTexCoord).r;
@@ -69,7 +73,7 @@ void main()
 	*/
 
 	vec3 camera = uScene.camera[3].xyz;
-	vec3 lightDirection = normalize(lPos - fragPos);
+	vec3 lightDirection = normalize(lightPosition - fragPos);
 	vec3 viewDirection = normalize(uScene.cameraPos - fragPos);
 
 	//Get half vector from lightDirection and viewDirection

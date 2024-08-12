@@ -150,6 +150,8 @@ namespace
 	struct PushConstants
 	{
 		int isNormalMapping;
+		float lightPosX, lightPosY, lightPosZ;
+		float lightColX, lightColY, lightColZ;
 	};
 
 	// Local functions:
@@ -440,12 +442,17 @@ int main() try
 
 	init_imgui(window, dpool.handle, imguiRenderPass.handle);
 
-	PushConstants pushConstants = { 0 };
+	PushConstants pushConstants = { 0, //normal mapping
+								 -0.2972, 7.3100, -11.9532, //light position
+									1.f, 1.f, 1.f, //light colour
+								};
 
 
 	bool alphaMasking = false;
 	bool normalMappingEnabled = false;
 
+	float* lightPosition[3] = { &pushConstants.lightPosX, &pushConstants.lightPosY, &pushConstants.lightPosZ };
+	float* lightColour[3] = { &pushConstants.lightColX, &pushConstants.lightColY, &pushConstants.lightColZ };
 	//RENDERING LOOP
 	// Application main loop
 	bool recreateSwapchain = false;
@@ -713,6 +720,12 @@ int main() try
 		ImGui::Begin("ImGui Window");
 		ImGui::Checkbox("Enable Alpha Masking", &alphaMasking);
 		ImGui::Checkbox("Use Normal Mapping", &normalMappingEnabled);
+
+		ImGui::Text("Camera Pos: (%f, %f, %f)", sceneUniforms.cameraPos.x, sceneUniforms.cameraPos.y, sceneUniforms.cameraPos.z);
+		
+		ImGui::DragFloat3("Light Position (XYZ)", *lightPosition, 0.1f, -20.0f, 20.0f, "%.2f");
+		ImGui::ColorEdit3("Light Colour", *lightColour);
+
 		ImGui::End();
 
 

@@ -190,7 +190,7 @@ namespace labutils
 		//Create GLFW window and Vulkan surface
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
-		ret.window = glfwCreateWindow(1280, 720, "Coursework 2", nullptr, nullptr);
+		ret.window = glfwCreateWindow(1280, 720, "Vulkan with Lighting", nullptr, nullptr);
 		if (!ret.window)
 		{
 			char const* errMsg = nullptr;

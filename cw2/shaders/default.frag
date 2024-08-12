@@ -24,6 +24,8 @@ layout(set = 1, binding = 3) uniform sampler2D uNormal;
 
 layout( push_constant ) uniform PushConstants {
 	int normalMapEnabled;
+	float lightPosX, lightPosY, lightPosZ;
+	float lightColX, lightColY, lightColZ;
 
 } pushConstants;
 
@@ -35,6 +37,9 @@ void main()
 
 	vec3 lPos = { -0.2972, 7.3100, -11.9532 };
 	vec3 lCol = { 1.f, 1.f, 1.f };
+
+	vec3 lightPosition = {pushConstants.lightPosX, pushConstants.lightPosY, pushConstants.lightPosZ}; 
+	vec3 lightColour = {pushConstants.lightColX, pushConstants.lightColY, pushConstants.lightColZ}; 
 
 	//Get all the parameters needed for light calculation
 	vec4 materialColour = vec4(texture(uTexColor, v2fTexCoord).rgb, 1.f);
@@ -63,7 +68,7 @@ void main()
 	*/
 
 	vec3 camera = uScene.camera[3].xyz;
-	vec3 lightDirection = normalize(lPos - fragPos);
+	vec3 lightDirection = normalize(lightPosition - fragPos);
 	vec3 viewDirection = normalize(uScene.cameraPos - fragPos);
 
 	//Get half vector from lightDirection and viewDirection
@@ -111,7 +116,7 @@ void main()
 	//Finally, we have everything we need for the BRDF microfacet model
 	vec3 BRDF = L_diffuse + (DFG / (4 * nDotV * nDotL)); 
 
-	vec3 finalLightColour = L_ambient.rgb + (BRDF * lCol * nDotL);
+	vec3 finalLightColour = L_ambient.rgb + (BRDF * lightColour * nDotL);
 	//oColor = vec4(light.lightColour, 1.f);
 	//oColor = vec4(lightDirection, 1.f);
 	//oColor = vec4(viewDirection, 1.f);
