@@ -337,10 +337,21 @@ int main() try
 	std::vector<lut::Image> images(model.textures.size());
 	std::vector<lut::ImageView> imageViews(images.size());
 
-	for (size_t i = 0; i < model.textures.size(); i++)
+	for (size_t i = 0; i < model.textures.size(); i+=4)
 	{
-		images[i] = lut::load_image_texture2d(model.textures[i].path.c_str(), window, cpool.handle, allocator);
+		
+		images[i] = lut::load_image_texture2d(model.textures[i].path.c_str(), window, cpool.handle, allocator, VK_FORMAT_R8G8B8A8_SRGB);
 		imageViews[i] = lut::create_image_view_texture2d(window, images[i].image, VK_FORMAT_R8G8B8A8_SRGB);
+
+		images[i+1] = lut::load_image_texture2d(model.textures[i+1].path.c_str(), window, cpool.handle, allocator, VK_FORMAT_R8G8B8A8_UNORM);
+		imageViews[i+1] = lut::create_image_view_texture2d(window, images[i+1].image, VK_FORMAT_R8G8B8A8_UNORM);
+
+		images[i+2] = lut::load_image_texture2d(model.textures[i+2].path.c_str(), window, cpool.handle, allocator, VK_FORMAT_R8G8B8A8_UNORM);
+		imageViews[i+2] = lut::create_image_view_texture2d(window, images[i+2].image, VK_FORMAT_R8G8B8A8_UNORM);
+
+		images[i+3] = lut::load_image_texture2d(model.textures[i+3].path.c_str(), window, cpool.handle, allocator, VK_FORMAT_R8G8B8A8_UNORM);
+		imageViews[i+3] = lut::create_image_view_texture2d(window, images[i+3].image, VK_FORMAT_R8G8B8A8_UNORM);
+
 	}
 
 	//Create descriptor pool

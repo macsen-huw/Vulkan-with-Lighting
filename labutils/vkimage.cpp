@@ -83,7 +83,7 @@ namespace labutils
 
 namespace labutils
 {
-	Image load_image_texture2d( char const* aPath, VulkanContext const& aContext, VkCommandPool aCmdPool, Allocator const& aAllocator )
+	Image load_image_texture2d( char const* aPath, VulkanContext const& aContext, VkCommandPool aCmdPool, Allocator const& aAllocator, VkFormat aFormat )
 	{
 		//Flip image vertically by default
 		stbi_set_flip_vertically_on_load(1);
@@ -118,7 +118,7 @@ namespace labutils
 		stbi_image_free(data);
 
 		//Create image
-		Image ret = create_image_texture2d(aAllocator, baseWidth, baseHeight, VK_FORMAT_R8G8B8A8_SRGB,
+		Image ret = create_image_texture2d(aAllocator, baseWidth, baseHeight, aFormat,
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
 
 		//Create command buffer for data upload and begin recording
