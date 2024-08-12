@@ -22,11 +22,10 @@ layout(set = 1, binding = 1) uniform sampler2D uMetalness;
 layout(set = 1, binding = 2) uniform sampler2D uRoughness;
 layout(set = 1, binding = 3) uniform sampler2D uNormal;
 
-layout(set = 2, binding = 0, std140) uniform Light
-{
-	vec3 lightPosition;
-	vec3 lightColour;
-} light;
+layout( push_constant ) uniform PushConstants {
+	int normalMapEnabled;
+
+} pushConstants;
 
 layout(location = 0) out vec4 oColor;
 
@@ -49,6 +48,7 @@ void main()
 	//Transform to global space using the tbn matrix
 	vec3 transformedNormals = normalize(tbn * mappedNormals);
 
+	vec3 normal = (pushConstants.normalMapEnabled * transformedNormals) + (int(!(bool(pushConstants.normalMapEnabled))) * oNormal);
 
 	//Follow the screenshots
 	float globalAmbient = 0.02;
@@ -63,7 +63,7 @@ void main()
 	*/
 
 	vec3 camera = uScene.camera[3].xyz;
-	vec3 lightDirection = normalize(light.lightPosition - fragPos);
+	vec3 lightDirection = normalize(lPos - fragPos);
 	vec3 viewDirection = normalize(uScene.cameraPos - fragPos);
 
 	//Get half vector from lightDirection and viewDirection
@@ -71,8 +71,6 @@ void main()
 
 	//Calculate L_ambient
 	vec4 L_ambient = globalAmbient * materialColour;
-
-	vec3 normal = transformedNormals;
 
 	//Calculate dot products that'll be reused in different functions
 	//Some of them are clamped, others aren't (this is intentional)

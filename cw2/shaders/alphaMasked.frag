@@ -22,13 +22,11 @@ layout(set = 1, binding = 1) uniform sampler2D uMetalness;
 layout(set = 1, binding = 2) uniform sampler2D uRoughness;
 layout(set = 1, binding = 3) uniform sampler2D uNormal;
 
+layout( push_constant ) uniform PushConstants {
+	int normalMapEnabled;
 
-layout(set = 2, binding = 0, std140) uniform Light
-{
-	vec3 lightPosition;
-	vec3 lightColour;
+} pushConstants;
 
-} light;
 
 layout(location = 0) out vec4 oColor;
 
@@ -43,6 +41,7 @@ void main()
 	
 	float pi = PI;
 
+	vec3 lPos = { -0.2972, 7.3100, -11.9532 };
 	vec3 lCol = { 1.f, 1.f, 1.f };
 
 	//Get roughness and metalness from the respective maps
@@ -54,12 +53,14 @@ void main()
 	//Transform to global space using the tbn matrix
 	vec3 transformedNormals = normalize(tbn * mappedNormals);
 
+	vec3 normal = (pushConstants.normalMapEnabled * transformedNormals) + (int(!(bool(pushConstants.normalMapEnabled))) * oNormal);
 
 	//Follow the screenshots
 	float globalAmbient = 0.02;
 
 	//Beckmann roughness is equivalent to texture roughness squared
 	float beckmannRoughness = pow(roughness, 2);
+
 
 	/* 
 	Get the fragment position to calculate light and view directions
@@ -68,7 +69,7 @@ void main()
 	*/
 
 	vec3 camera = uScene.camera[3].xyz;
-	vec3 lightDirection = normalize(light.lightPosition - fragPos);
+	vec3 lightDirection = normalize(lPos - fragPos);
 	vec3 viewDirection = normalize(uScene.cameraPos - fragPos);
 
 	//Get half vector from lightDirection and viewDirection
@@ -78,7 +79,6 @@ void main()
 	vec4 L_ambient = globalAmbient * materialColour;
 
 	
-	vec3 normal = transformedNormals;
 	//Calculate dot products that'll be reused in different functions
 	//Some of them are clamped, others aren't (this is intentional)
 	float nDotH = max(0, dot(normal, halfVector));

@@ -94,9 +94,6 @@ namespace
 			glm::mat4 projCam;
 
 			glm::vec3 cameraPos;
-
-			glm::vec3 lightPosition;
-			glm::vec3 lightColour;
 		};
 
 		static_assert(sizeof(SceneUniform) <= 65536, "SceneUniform must be less than 65536 bytes for vkCmdUpdateBuffer");
@@ -149,14 +146,11 @@ namespace
 		//Store number of indices in mesh (needed for drawing)
 		size_t indexCount = 0;
 	};
-	
-	//Holds all information needed for light
-	struct Light
-	{
-		glm::vec3 lightPosition;
-		glm::vec3 lightColour;
-	};
 
+	struct PushConstants
+	{
+		int isNormalMapping;
+	};
 
 	// Local functions:
 	void update_user_state(UserState&, float aElapsedTime);
@@ -168,16 +162,12 @@ namespace
 	MeshDetails create_mesh(lut::VulkanContext const& aContext, lut::Allocator const& aAllocator, glm::vec3 aPositions[], glm::vec2 aTexCoords[],
 							glm::vec3 aNormals[], std::uint32_t aIndices[], size_t aVertexCount, size_t aIndexCount, int aMaterialIndex, glm::vec4 aTangents[]);
 
-	//Create buffer with light information
-	lut::Buffer create_light_buffer(lut::VulkanContext const& aContext, lut::Allocator const& aAllocator, Light aLight);
-
 	//Create descriptor sets
 	lut::DescriptorSetLayout create_scene_descriptor_layout(lut::VulkanWindow const& aWindow);
 	lut::DescriptorSetLayout create_material_descriptor_layout(lut::VulkanWindow const& aWindow);
-	lut::DescriptorSetLayout create_light_descriptor_layout(lut::VulkanWindow const& aWindow);
 
 	//Create pipeline layout
-	lut::PipelineLayout create_default_pipeline_layout(lut::VulkanContext const&, VkDescriptorSetLayout, VkDescriptorSetLayout, VkDescriptorSetLayout);
+	lut::PipelineLayout create_default_pipeline_layout(lut::VulkanContext const&, VkDescriptorSetLayout, VkDescriptorSetLayout);
 
 	//Create pipeline
 	lut::Pipeline create_default_pipeline(lut::VulkanWindow const&, VkRenderPass, VkPipelineLayout, const char*, const char*, bool);
@@ -253,10 +243,8 @@ int main() try
 
 	lut::DescriptorSetLayout materialLayout = create_material_descriptor_layout(window);
 
-	lut::DescriptorSetLayout lightLayout = create_light_descriptor_layout(window);
-
 	//Create pipeline layout
-	lut::PipelineLayout pipeLayout = create_default_pipeline_layout(window, sceneLayout.handle, materialLayout.handle, lightLayout.handle);
+	lut::PipelineLayout pipeLayout = create_default_pipeline_layout(window, sceneLayout.handle, materialLayout.handle);
 
 	//Create pipeline
 	lut::Pipeline pipe = create_default_pipeline(window, renderPass.handle, pipeLayout.handle, cfg::kVertexShaderPath, cfg::kTextureFragShaderPath, false);
@@ -304,6 +292,8 @@ int main() try
 	std::vector<MeshDetails> meshes;
 	std::vector<MeshDetails> alphaMaskedMeshes;
 
+	std::vector<MeshDetails> notAlphaMaskedMeshes;
+
 	for (size_t i = 0; i < model.meshes.size(); i++)
 	{
 		bool hasAlphaMask = false;
@@ -333,6 +323,11 @@ int main() try
 				model.meshes.at(i).indices.size(), model.meshes.at(i).materialId, model.meshes.at(i).tangents.data()));
 
 		}
+
+		notAlphaMaskedMeshes.emplace_back(create_mesh(window, allocator, model.meshes.at(i).positions.data(),
+			model.meshes.at(i).texcoords.data(), model.meshes.at(i).normals.data(),
+			model.meshes.at(i).indices.data(), model.meshes.at(i).positions.size(),
+			model.meshes.at(i).indices.size(), model.meshes.at(i).materialId, model.meshes.at(i).tangents.data()));
 			}
 
 	//Load every texture in the model, and create image views for each
@@ -421,33 +416,11 @@ int main() try
 	}
 
 	//Create buffer to store the light details
-	Light light;
+	/*Light light;
 	light.lightPosition = { -0.2972, 7.3100, -11.9532 };
-	light.lightColour = { 1.f, 1.f, 1.f };
-
-	lut::Buffer lightBuffer = create_light_buffer(window, allocator, light);
+	light.lightColour = { 1.f, 1.f, 1.f };*/
 	
-	//Create descriptor set for the light
-	VkDescriptorSet lightDescriptorSet = lut::alloc_desc_set(window, dpool.handle, lightLayout.handle);
-	{
-		VkWriteDescriptorSet desc[1]{};
-
-		VkDescriptorBufferInfo lightInfo{};
-		lightInfo.buffer = lightBuffer.buffer;
-		lightInfo.range = VK_WHOLE_SIZE;
-
-
-		desc[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		desc[0].dstSet = lightDescriptorSet;
-		desc[0].dstBinding = 0;
-		desc[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		desc[0].descriptorCount = 1;
-		desc[0].pBufferInfo = &lightInfo;
-
-		constexpr auto numSets = sizeof(desc) / sizeof(desc[0]);
-		vkUpdateDescriptorSets(window.device, numSets, desc, 0, nullptr);
-	}
-
+	
 	//Setup imgui
 	lut::RenderPass imguiRenderPass = create_imgui_render_pass(window);
 
@@ -467,6 +440,11 @@ int main() try
 
 	init_imgui(window, dpool.handle, imguiRenderPass.handle);
 
+	PushConstants pushConstants = { 0 };
+
+
+	bool alphaMasking = false;
+	bool normalMappingEnabled = false;
 
 	//RENDERING LOOP
 	// Application main loop
@@ -613,45 +591,71 @@ int main() try
 		vkCmdBindPipeline(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe.handle);
 
 		//Bind the descriptors
-		vkCmdBindDescriptorSets(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout.handle, 2, 1, &lightDescriptorSet, 0, nullptr);
 		vkCmdBindDescriptorSets(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout.handle, 0, 1, &sceneDescriptors, 0, nullptr);
 		
+		//Pass PushConstants to shader
+		normalMappingEnabled ? pushConstants.isNormalMapping = 1 : pushConstants.isNormalMapping = 0;
 
-		for (uint32_t i = 0; i < meshes.size(); i++)
+		vkCmdPushConstants(cbuffers[imageIndex], pipeLayout.handle, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pushConstants);
+
+		if (alphaMasking)
 		{
-			//Bind the material descriptor set
-			vkCmdBindDescriptorSets(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout.handle, 1, 1, &meshDescriptorSets[meshes.at(i).materialIndex], 0, nullptr);
+			for (uint32_t i = 0; i < meshes.size(); i++)
+			{
+				//Bind the material descriptor set
+				vkCmdBindDescriptorSets(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout.handle, 1, 1, &meshDescriptorSets[meshes.at(i).materialIndex], 0, nullptr);
 
-			VkBuffer meshBuffers[4] = { meshes.at(i).positions.buffer, meshes.at(i).texCoords.buffer, meshes.at(i).normals.buffer, meshes.at(i).tangents.buffer };
-			VkDeviceSize meshOffsets[4] = {};
-			//Bind vertex buffers
-			vkCmdBindVertexBuffers(cbuffers[imageIndex], 0, 4, meshBuffers, meshOffsets);
+				VkBuffer meshBuffers[4] = { meshes.at(i).positions.buffer, meshes.at(i).texCoords.buffer, meshes.at(i).normals.buffer, meshes.at(i).tangents.buffer };
+				VkDeviceSize meshOffsets[4] = {};
+				//Bind vertex buffers
+				vkCmdBindVertexBuffers(cbuffers[imageIndex], 0, 4, meshBuffers, meshOffsets);
 
-			//Bind index buffer
-			vkCmdBindIndexBuffer(cbuffers[imageIndex], meshes.at(i).indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+				//Bind index buffer
+				vkCmdBindIndexBuffer(cbuffers[imageIndex], meshes.at(i).indices.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-			vkCmdDrawIndexed(cbuffers[imageIndex], meshes.at(i).indexCount, 1, 0, 0, 0);
+				vkCmdDrawIndexed(cbuffers[imageIndex], meshes.at(i).indexCount, 1, 0, 0, 0);
+			}
+
+			//Change to alpha masked pipeline
+			vkCmdBindPipeline(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, alphaPipe.handle);
+
+			for (size_t i = 0; i < alphaMaskedMeshes.size(); i++)
+			{
+				//Bind the material descriptor set
+				vkCmdBindDescriptorSets(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout.handle, 1, 1, &meshDescriptorSets[alphaMaskedMeshes.at(i).materialIndex], 0, nullptr);
+
+				VkBuffer alphaMeshBuffers[4] = { alphaMaskedMeshes.at(i).positions.buffer, alphaMaskedMeshes.at(i).texCoords.buffer, alphaMaskedMeshes.at(i).normals.buffer, alphaMaskedMeshes.at(i).tangents.buffer };
+				VkDeviceSize alphaMeshOffsets[4] = {};
+
+				//Bind vertex buffers
+				vkCmdBindVertexBuffers(cbuffers[imageIndex], 0, 4, alphaMeshBuffers, alphaMeshOffsets);
+
+				//Bind index buffer
+				vkCmdBindIndexBuffer(cbuffers[imageIndex], alphaMaskedMeshes.at(i).indices.buffer, 0, VK_INDEX_TYPE_UINT32);
+
+				vkCmdDrawIndexed(cbuffers[imageIndex], alphaMaskedMeshes.at(i).indexCount, 1, 0, 0, 0);
+			}
 		}
 
-		//Change to alpha masked pipeline
-		vkCmdBindPipeline(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, alphaPipe.handle);
-
-		for (size_t i = 0; i < alphaMaskedMeshes.size(); i++)
+		else
 		{
-			//Bind the material descriptor set
-			vkCmdBindDescriptorSets(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout.handle, 1, 1, &meshDescriptorSets[alphaMaskedMeshes.at(i).materialIndex], 0, nullptr);
+			for (uint32_t i = 0; i < notAlphaMaskedMeshes.size(); i++)
+			{
+				//Bind the material descriptor set
+				vkCmdBindDescriptorSets(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeLayout.handle, 1, 1, &meshDescriptorSets[notAlphaMaskedMeshes.at(i).materialIndex], 0, nullptr);
 
-			VkBuffer alphaMeshBuffers[4] = { alphaMaskedMeshes.at(i).positions.buffer, alphaMaskedMeshes.at(i).texCoords.buffer, alphaMaskedMeshes.at(i).normals.buffer, alphaMaskedMeshes.at(i).tangents.buffer};
-			VkDeviceSize alphaMeshOffsets[4] = {};
+				VkBuffer meshBuffers[4] = { notAlphaMaskedMeshes.at(i).positions.buffer, notAlphaMaskedMeshes.at(i).texCoords.buffer, notAlphaMaskedMeshes.at(i).normals.buffer, notAlphaMaskedMeshes.at(i).tangents.buffer };
+				VkDeviceSize meshOffsets[4] = {};
+				//Bind vertex buffers
+				vkCmdBindVertexBuffers(cbuffers[imageIndex], 0, 4, meshBuffers, meshOffsets);
 
-			//Bind vertex buffers
-			vkCmdBindVertexBuffers(cbuffers[imageIndex], 0, 4, alphaMeshBuffers, alphaMeshOffsets);
+				//Bind index buffer
+				vkCmdBindIndexBuffer(cbuffers[imageIndex], notAlphaMaskedMeshes.at(i).indices.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-			//Bind index buffer
-			vkCmdBindIndexBuffer(cbuffers[imageIndex], alphaMaskedMeshes.at(i).indices.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-			vkCmdDrawIndexed(cbuffers[imageIndex], alphaMaskedMeshes.at(i).indexCount, 1, 0, 0, 0);
+				vkCmdDrawIndexed(cbuffers[imageIndex], notAlphaMaskedMeshes.at(i).indexCount, 1, 0, 0, 0);
+			}
 		}
+		
 		
 
 		//End the render pass
@@ -707,7 +711,8 @@ int main() try
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
 		ImGui::Begin("ImGui Window");
-		ImGui::Text("ImGui has been successfully integrated with this application");
+		ImGui::Checkbox("Enable Alpha Masking", &alphaMasking);
+		ImGui::Checkbox("Use Normal Mapping", &normalMappingEnabled);
 		ImGui::End();
 
 
@@ -1251,101 +1256,6 @@ namespace
 		return ret;
 	}
 
-	lut::Buffer create_light_buffer(lut::VulkanContext const& aContext, lut::Allocator const& aAllocator, Light aLight)
-	{
-		//Set required sizes for each detail
-		VkDeviceSize lightSize = sizeof(Light);
-
-		//Create buffer for light
-		lut::Buffer lightGPU = lut::create_buffer(
-			aAllocator,
-			lightSize,
-			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-			0, //No additional VmaAllocationCreateFlags
-			VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE //Can also be VMA_MEMORY_USAGE_AUTO
-		);
-
-		
-		//Create staging buffer
-		lut::Buffer lightStaging = lut::create_buffer(
-			aAllocator,
-			lightSize,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
-		);
-
-		//Map position memory
-		void* lightPtr = nullptr;
-		if (auto const res = vmaMapMemory(aAllocator.allocator, lightStaging.allocation, &lightPtr); VK_SUCCESS != res)
-		{
-			throw lut::Error("Mapping memory for writing\n" "vmaMapMemory() returned %s", lut::to_string(res).c_str());
-		}
-
-		std::memcpy(lightPtr, &aLight, lightSize);
-		vmaUnmapMemory(aAllocator.allocator, lightStaging.allocation);
-
-
-		//Prepare for issuing the transfer commands that copy data from staging buffers to final on-GPU buffers
-		//First, ensure that Vulkan resources are alive until all transfers are completed
-		lut::Fence uploadComplete = lut::create_fence(aContext);
-
-		//Queue data uploads from staging buffers to final buffers
-		//Use a separate command pool for simplicity
-		lut::CommandPool uploadPool = lut::create_command_pool(aContext);
-		VkCommandBuffer uploadCmd = lut::alloc_command_buffer(aContext, uploadPool.handle);
-
-		//Record copy commands into command buffer
-		VkCommandBufferBeginInfo beginInfo{};
-		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-		beginInfo.flags = 0;
-		beginInfo.pInheritanceInfo = nullptr;
-
-		if (auto const res = vkBeginCommandBuffer(uploadCmd, &beginInfo); VK_SUCCESS != res)
-		{
-			throw lut::Error("Beginning command buffer recording\n" "vkBeginCommandBuffer() returned %s", lut::to_string(res).c_str());
-		}
-
-		//Copy commands into buffer
-		VkBufferCopy lcopy{};
-		lcopy.size = lightSize;
-
-		vkCmdCopyBuffer(uploadCmd, lightStaging.buffer, lightGPU.buffer, 1, &lcopy);
-
-		lut::buffer_barrier(
-			uploadCmd,
-			lightGPU.buffer,
-			VK_ACCESS_TRANSFER_WRITE_BIT,
-			VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
-			VK_PIPELINE_STAGE_TRANSFER_BIT,
-			VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
-		);
-
-		if (auto const res = vkEndCommandBuffer(uploadCmd); VK_SUCCESS != res)
-		{
-			throw lut::Error("Ending command buffer recording\n" "vkEndCommandBuffer() returned %s", lut::to_string(res).c_str());
-		}
-
-		//Submit transfer commands
-		VkSubmitInfo submitInfo{};
-		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.commandBufferCount = 1;
-		submitInfo.pCommandBuffers = &uploadCmd;
-
-		if (auto const res = vkQueueSubmit(aContext.graphicsQueue, 1, &submitInfo, uploadComplete.handle); VK_SUCCESS != res)
-		{
-			throw lut::Error("Submitting commands\n" "vkQueueSubmit() returned %s", lut::to_string(res).c_str());
-		}
-
-		//Wait for commands to finish before destroying temporary resources needed for transfers
-		if (auto const res = vkWaitForFences(aContext.device, 1, &uploadComplete.handle, VK_TRUE, std::numeric_limits<std::uint64_t>::max()); VK_SUCCESS != res)
-		{
-			throw lut::Error("Waiting for upload to complete\n" "vkWaitForFences() returned %s", lut::to_string(res).c_str());
-		}
-
-		lut::Buffer light = std::move(lightGPU);
-		return light;
-	}
-
 	lut::DescriptorSetLayout create_scene_descriptor_layout(lut::VulkanWindow const& aWindow)
 	{
 		//Set up bindings
@@ -1417,50 +1327,29 @@ namespace
 		return lut::DescriptorSetLayout(aWindow.device, layout);
 	}
 
-	lut::DescriptorSetLayout create_light_descriptor_layout(lut::VulkanWindow const& aWindow)
-	{
-		//Set up bindings
-		VkDescriptorSetLayoutBinding bindings[1]{};
-		bindings[0].binding = 0; //Number must match the index of the corresponding *binding = N* declaration in shader
-		bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		bindings[0].descriptorCount = 1;
-		bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-		//With bindings set, finish up the descriptor set layout properties
-		VkDescriptorSetLayoutCreateInfo layoutInfo{};
-		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-		layoutInfo.bindingCount = sizeof(bindings) / sizeof(bindings[0]);
-		layoutInfo.pBindings = bindings;
-
-		//Finally, create descriptor set layout
-		VkDescriptorSetLayout layout = VK_NULL_HANDLE;
-		if (auto const res = vkCreateDescriptorSetLayout(aWindow.device, &layoutInfo, nullptr, &layout); VK_SUCCESS != res)
-		{
-			throw lut::Error("Unable to create descriptor set layout\n" "vkCreateDescriptorSetLayout() returned %s", lut::to_string(res).c_str());
-		}
-
-		return lut::DescriptorSetLayout(aWindow.device, layout);
-
-	}
-
 
 	//Create "default" pipeline - i.e. the main pipeline that draws most objects (draws all initially)
-	lut::PipelineLayout create_default_pipeline_layout(lut::VulkanContext const& aContext, VkDescriptorSetLayout aSceneLayout, VkDescriptorSetLayout aMaterialLayout, VkDescriptorSetLayout aLightLayout)
+	lut::PipelineLayout create_default_pipeline_layout(lut::VulkanContext const& aContext, VkDescriptorSetLayout aSceneLayout, VkDescriptorSetLayout aMaterialLayout)
 	{
 		VkDescriptorSetLayout layouts[] =
 		{
 			aSceneLayout,
 			aMaterialLayout,
-			aLightLayout
 		};
+
+		//Create push constants
+		VkPushConstantRange pushConstantRange;
+		pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		pushConstantRange.offset = 0;
+		pushConstantRange.size = sizeof(PushConstants);
 
 		//Finish up the pipeline layout properties
 		VkPipelineLayoutCreateInfo layoutInfo{};
 		layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		layoutInfo.setLayoutCount = sizeof(layouts) / sizeof(layouts[0]);
 		layoutInfo.pSetLayouts = layouts;
-		layoutInfo.pushConstantRangeCount = 0;
-		layoutInfo.pPushConstantRanges = nullptr;
+		layoutInfo.pushConstantRangeCount = 1;
+		layoutInfo.pPushConstantRanges = &pushConstantRange;
 
 		//Create the pipeline layout
 		VkPipelineLayout layout = VK_NULL_HANDLE;
