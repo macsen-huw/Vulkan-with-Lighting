@@ -187,6 +187,7 @@ namespace labutils
 		poolInfo.maxSets = aMaxSets;
 		poolInfo.poolSizeCount = sizeof(pools) / sizeof(pools[0]);
 		poolInfo.pPoolSizes = pools;
+		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
 		VkDescriptorPool pool = VK_NULL_HANDLE;
 		if (auto const res = vkCreateDescriptorPool(aContext.device, &poolInfo, nullptr, &pool); VK_SUCCESS != res)

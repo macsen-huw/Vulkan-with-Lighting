@@ -82,6 +82,7 @@ project "cw2"
 	links "x-stb"
 	links "x-glfw"
 	links "x-vma"
+	links "imgui"
 
 	dependson "x-glm" 
 

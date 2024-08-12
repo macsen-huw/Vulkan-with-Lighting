@@ -9,6 +9,7 @@ includedirs( "glm/include" );
 includedirs( "rapidobj/include" );
 includedirs( "tgen/include" );
 includedirs( "zstd/include" );
+includedirs("imgui");
 
 defines( "GLM_FORCE_RADIANS=1" )
 defines( "GLM_FORCE_SIZE_T_LENGTH=1" )
@@ -159,5 +160,13 @@ project( "x-zstd" )
 
 	files( "zstd/src/common/*.c" )
 	files( "zstd/src/decompress/*.c" )
+
+project("imgui")
+	kind "StaticLib"
+
+	location "."
+
+	files("imgui/**.cpp")
+	files("imgui/**.h")
 
 --EOF

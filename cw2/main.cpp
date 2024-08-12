@@ -39,6 +39,9 @@ namespace lut = labutils;
 #include "baked_model.hpp"
 
 
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
 namespace
 {
 	using Clock_ = std::chrono::steady_clock;
@@ -216,6 +219,14 @@ namespace
 		VkSemaphore,
 		bool& aNeedToRecreateSwapchain
 	);
+
+	//ImGui Functions
+	void init_imgui(lut::VulkanWindow&, VkDescriptorPool&, VkRenderPass&);
+	void destroy_imgui();
+
+	lut::RenderPass create_imgui_render_pass(lut::VulkanWindow const&);
+
+	void create_imgui_framebuffers(lut::VulkanWindow const&, VkRenderPass, std::vector<lut::Framebuffer>&);
 }
 
 int main() try
@@ -437,6 +448,26 @@ int main() try
 		vkUpdateDescriptorSets(window.device, numSets, desc, 0, nullptr);
 	}
 
+	//Setup imgui
+	lut::RenderPass imguiRenderPass = create_imgui_render_pass(window);
+
+	lut::Semaphore imguiSemaphore = lut::create_semaphore(window);
+
+	std::vector<lut::Framebuffer> imguiFramebuffers;
+	create_imgui_framebuffers(window, imguiRenderPass.handle, imguiFramebuffers);
+
+	std::vector<VkCommandBuffer> imguicbuffers;
+	std::vector<lut::Fence> imguicbfences;
+
+	for (std::size_t i = 0; i < imguiFramebuffers.size(); ++i)
+	{
+		imguicbuffers.emplace_back(lut::alloc_command_buffer(window, cpool.handle));
+		imguicbfences.emplace_back(lut::create_fence(window, VK_FENCE_CREATE_SIGNALED_BIT));
+	}
+
+	init_imgui(window, dpool.handle, imguiRenderPass.handle);
+
+
 	//RENDERING LOOP
 	// Application main loop
 	bool recreateSwapchain = false;
@@ -467,8 +498,12 @@ int main() try
 			auto const changes = lut::recreate_swapchain(window);
 
 			if (changes.changedFormat)
+			{
 				renderPass = create_render_pass(window);
+				imguiRenderPass = create_imgui_render_pass(window);
 
+			}
+				
 			if (changes.changedSize)
 			{
 				std::tie(depthBuffer, depthBufferView) = create_depth_buffer(window, allocator);
@@ -477,7 +512,13 @@ int main() try
 			}
 				
 			framebuffers.clear();
+			imguiFramebuffers.clear();
+
 			create_swapchain_framebuffers(window, renderPass.handle, framebuffers, depthBufferView.handle);
+			create_imgui_framebuffers(window, imguiRenderPass.handle, imguiFramebuffers);
+
+			//Recreate semaphore
+			imageAvailable = lut::create_semaphore(window);
 
 			recreateSwapchain = false;
 			continue;
@@ -627,13 +668,75 @@ int main() try
 		 
 		
 		//Submit the recorded commands
-		submit_commands(window, cbuffers[imageIndex], cbfences[imageIndex].handle, imageAvailable.handle, renderFinished.handle);
+		submit_commands(window, cbuffers[imageIndex], cbfences[imageIndex].handle, imageAvailable.handle, imguiSemaphore.handle);
+
+		//Prepare for second pass with ImGui
+		assert(std::size_t(imageIndex) < imguicbfences.size());
+
+		if (auto const res = vkWaitForFences(window.device, 1, &imguicbfences[imageIndex].handle, VK_TRUE, std::numeric_limits<std::uint64_t>::max()); VK_SUCCESS != res)
+		{
+			throw lut::Error("Unable to wait for command buffer fence %u\n" "vkWaitForFences() returned %s", imageIndex, lut::to_string(res).c_str());
+		}
+
+		if (auto const res = vkResetFences(window.device, 1, &imguicbfences[imageIndex].handle); VK_SUCCESS != res)
+		{
+			throw lut::Error("Unable to reset command buffer fence %u\n" "vkResetFences() returned %s", imageIndex, lut::to_string(res).c_str());
+		}
+
+		//It is available, so begin recording
+		begInfo = {};
+		begInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		begInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		begInfo.pInheritanceInfo = nullptr;
+
+		if (auto const res = vkBeginCommandBuffer(imguicbuffers[imageIndex], &begInfo); VK_SUCCESS != res)
+		{
+			throw lut::Error("Unable to begin recording command buffer\n" "vkBeginCommandBuffer() returned %s", lut::to_string(res).c_str());
+		}
+
+		VkRenderPassBeginInfo imguiPassInfo = passInfo;
+		imguiPassInfo.framebuffer = imguiFramebuffers[imageIndex].handle;
+		imguiPassInfo.renderPass = imguiRenderPass.handle;
+		imguiPassInfo.clearValueCount = 1;
+		imguiPassInfo.pClearValues = &clearValues[0];
+
+		vkCmdBeginRenderPass(imguicbuffers[imageIndex], &imguiPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+		//Setup new ImGui frame
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+		ImGui::Begin("ImGui Window");
+		ImGui::Text("ImGui has been successfully integrated with this application");
+		ImGui::End();
+
+
+		ImGui::Render();
+		ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), imguicbuffers[imageIndex]);
+
+		vkCmdEndRenderPass(imguicbuffers[imageIndex]);
+
+		//End command recording
+		if (auto const res = vkEndCommandBuffer(imguicbuffers[imageIndex]); VK_SUCCESS != res)
+		{
+			throw lut::Error("Unable to end recording command buffer\n" "vkEndCommandBuffer() returned %s", lut::to_string(res).c_str());
+		}
+
+		//Submit commands
+		submit_commands(window, imguicbuffers[imageIndex], imguicbfences[imageIndex].handle, imguiSemaphore.handle, renderFinished.handle);
 
 		//Present the results
 		present_results(window.presentQueue, window.swapchain, imageIndex, renderFinished.handle, recreateSwapchain);
 
+		//Ensure the command buffers have finished (throws an error if not)
+		if (auto const res = vkWaitForFences(window.device, 1, &imguicbfences[imageIndex].handle, VK_TRUE, std::numeric_limits<std::uint64_t>::max()); VK_SUCCESS != res)
+		{
+			throw lut::Error("Unable to wait for command buffer fence %u\n" "vkWaitForFences() returned %s", imageIndex, lut::to_string(res).c_str());
+		}
+
 	}
 
+	destroy_imgui();
 
 	vkDeviceWaitIdle(window.device);
 
@@ -821,7 +924,7 @@ namespace
 		attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		attachments[0].finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 		attachments[1].format = cfg::kDepthFormat;
 		attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -1674,6 +1777,135 @@ namespace
 	}
 }
 
+//Imgui functions
+namespace
+{
+	void init_imgui(lut::VulkanWindow& aWindow, VkDescriptorPool& aDpool, VkRenderPass& aRenderPass)
+	{
+		IMGUI_CHECKVERSION();
+
+		ImGui::CreateContext();
+		ImGuiIO& io = ImGui::GetIO(); (void)io;
+
+		ImGui::StyleColorsDark();
+
+		ImGui_ImplGlfw_InitForVulkan(aWindow.window, true);
+		ImGui_ImplVulkan_InitInfo init_info = {};
+		init_info.Instance = aWindow.instance;
+		init_info.PhysicalDevice = aWindow.physicalDevice;
+		init_info.Device = aWindow.device;
+		init_info.QueueFamily = aWindow.graphicsFamilyIndex;
+		init_info.Queue = aWindow.graphicsQueue;
+		init_info.PipelineCache = VK_NULL_HANDLE;
+		init_info.DescriptorPool = aDpool;
+		init_info.Allocator = nullptr;
+		init_info.RenderPass = aRenderPass;
+
+		//Get image count
+		std::uint32_t imageCount;
+		vkGetSwapchainImagesKHR(aWindow.device, aWindow.swapchain, &imageCount, nullptr);
+
+		init_info.MinImageCount = imageCount;
+		init_info.ImageCount = imageCount;
+
+		ImGui_ImplVulkan_Init(&init_info);
+
+		//Load fonts
+		ImGui_ImplVulkan_CreateFontsTexture();
+	}
+
+	void destroy_imgui()
+	{
+		ImGui_ImplVulkan_Shutdown();
+		ImGui_ImplGlfw_Shutdown();
+		ImGui::DestroyContext();
+	}
+
+	//Create a renderpass
+	lut::RenderPass create_imgui_render_pass(lut::VulkanWindow const& aWindow)
+	{
+		VkAttachmentDescription attachments[1]{};
+		attachments[0].format = aWindow.swapchainFormat;
+		attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
+		attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachments[0].initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+		VkAttachmentReference colourAttachment = {};
+		colourAttachment.attachment = 0;
+		colourAttachment.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+		VkSubpassDescription subpasses[1]{};
+		subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+		subpasses[0].colorAttachmentCount = 1;
+		subpasses[0].pColorAttachments = &colourAttachment;
+
+		//Introduce a dependency
+		VkSubpassDependency deps = {};
+		deps.srcSubpass = VK_SUBPASS_EXTERNAL;
+		deps.srcAccessMask = 0;
+		deps.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		deps.dstSubpass = 0;
+		deps.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		deps.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+
+
+		//With declarations in place, we can now create the render pass
+		VkRenderPassCreateInfo passInfo{};
+		passInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+		passInfo.attachmentCount = 1;
+		passInfo.pAttachments = attachments;
+		passInfo.subpassCount = 1;
+		passInfo.pSubpasses = subpasses;
+		passInfo.dependencyCount = 1;
+		passInfo.pDependencies = &deps;
+
+		VkRenderPass rpass = VK_NULL_HANDLE;
+		if (auto const res = vkCreateRenderPass(aWindow.device, &passInfo, nullptr, &rpass); VK_SUCCESS != res)
+		{
+			throw lut::Error("Unable to create render pass\n" "vkCreateRenderPass() returned %s", lut::to_string(res).c_str());
+		}
+
+		return lut::RenderPass(aWindow.device, rpass);
+	}
+
+	//Create framebuffers (they differ from the swapchain framebuffer since they don't have depth)
+	void create_imgui_framebuffers(lut::VulkanWindow const& aWindow, VkRenderPass aRenderPass, std::vector<lut::Framebuffer>& aFramebuffers)
+	{
+		assert(aFramebuffers.empty());
+
+		for (std::size_t i = 0; i < aWindow.swapViews.size(); ++i)
+		{
+			VkImageView attachments[] =
+			{
+				aWindow.swapViews[i]
+			};
+
+			VkFramebufferCreateInfo fbInfo{};
+			fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+			fbInfo.flags = 0;
+			fbInfo.renderPass = aRenderPass;
+			fbInfo.attachmentCount = 1;
+			fbInfo.pAttachments = attachments;
+			fbInfo.width = aWindow.swapchainExtent.width;
+			fbInfo.height = aWindow.swapchainExtent.height;
+			fbInfo.layers = 1;
+
+			VkFramebuffer fb = VK_NULL_HANDLE;
+			if (auto const res = vkCreateFramebuffer(aWindow.device, &fbInfo, nullptr, &fb); VK_SUCCESS != res)
+			{
+				throw lut::Error("Unable to create imgui framebuffer for swap chain image %zu\n" "vkCreateFramebuffer() returned %s", i, lut::to_string(res).c_str());
+			}
+
+			aFramebuffers.emplace_back(lut::Framebuffer(aWindow.device, fb));
+		}
+
+		assert(aWindow.swapViews.size() == aFramebuffers.size());
+	}
+
+}
 
 
 
