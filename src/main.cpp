@@ -49,7 +49,7 @@ namespace
 
 	namespace cfg
 	{
-#		define SHADERDIR_ "assets/cw2/shaders/"
+#		define SHADERDIR_ "assets/src/shaders/"
 
 		constexpr char const* kVertexShaderPath = SHADERDIR_ "default.vert.spv";
 		constexpr char const* kTextureFragShaderPath = SHADERDIR_ "default.frag.spv";
@@ -279,7 +279,7 @@ int main() try
 	lut::Buffer sceneUBO = lut::create_buffer(allocator, sizeof(glsl::SceneUniform), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
 	//Load model
-	BakedModel model = load_baked_model("assets/cw2/suntemple.comp5822mesh");
+	BakedModel model = load_baked_model("assets/src/suntemple.comp5822mesh");
 	
 	//Make a list of all materials with alpha masks (i.e. those with valid alphaMaskTextureIDs)
 	std::vector<uint32_t> alphaTextures;
@@ -636,6 +636,9 @@ int main() try
 
 			//Change to alpha masked pipeline
 			vkCmdBindPipeline(cbuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, alphaPipe.handle);
+
+			//Pass push constants again
+			vkCmdPushConstants(cbuffers[imageIndex], pipeLayout.handle, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &pushConstants);
 
 			for (size_t i = 0; i < alphaMaskedMeshes.size(); i++)
 			{

@@ -47,7 +47,7 @@
  *   - 1*uint32_t: N = length of string in chars, including terminating \0
  *   - repeat N times: char in string
  *
- * See cw2-bake/main.cpp (specifically write_model_data_()) for additional
+ * See bake/main.cpp (specifically write_model_data_()) for additional
  * information.
  *
  *

@@ -45,8 +45,8 @@ namespace
 
 	/* Fallback texture for RGBA 1111 and Grayscale 1
 	 */
-	constexpr char kTextureFallbackR1[] = "assets-src/cw2/r1.png";
-	constexpr char kTextureFallbackRGBA1111[] = "assets-src/cw2/rgba1111.png";
+	constexpr char kTextureFallbackR1[] = "assets-src/src/r1.png";
+	constexpr char kTextureFallbackRGBA1111[] = "assets-src/src/rgba1111.png";
 
 	// types
 	struct TextureInfo_
@@ -96,8 +96,8 @@ namespace
 int main() try
 {
 	process_model_(
-		"assets/cw2/suntemple.comp5822mesh",
-		"assets-src/cw2/suntemple.obj-zstd"
+		"assets/src/suntemple.comp5822mesh",
+		"assets-src/src/suntemple.obj-zstd"
 	);
 
 	return 0;

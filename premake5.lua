@@ -1,4 +1,4 @@
-workspace "COMP5822M-cw2"
+workspace "vulkanLighting"
 	language "C++"
 	cppdialect "C++17"
 	--cppdialect "C++20"
@@ -9,7 +9,7 @@ workspace "COMP5822M-cw2"
 	flags "NoPCH"
 	flags "MultiProcessorCompile"
 
-	startproject "cw2"
+	startproject "vulkanLight"
 
 	debugdir "%{wks.location}"
 	objdir "_build_/%{cfg.buildcfg}-%{cfg.platform}-%{cfg.toolset}"
@@ -63,19 +63,19 @@ include "third_party"
 dofile( "util/glslc.lua" )
 
 -- Projects
-project "cw2"
+project "vulkanLighting"
 	local sources = { 
-		"cw2/**.cpp",
-		"cw2/**.hpp",
-		"cw2/**.hxx"
+		"src/**.cpp",
+		"src/**.hpp",
+		"src/**.hxx"
 	}
 
 	kind "ConsoleApp"
-	location "cw2"
+	location "src"
 
 	files( sources )
 
-	dependson "cw2-shaders"
+	dependson "src-shaders"
 
 	links "labutils"
 	links "x-volk"
@@ -86,32 +86,32 @@ project "cw2"
 
 	dependson "x-glm" 
 
-project "cw2-shaders"
+project "src-shaders"
 	local shaders = { 
-		"cw2/shaders/*.vert",
-		"cw2/shaders/*.frag",
-		"cw2/shaders/*.comp",
-		"cw2/shaders/*.geom",
-		"cw2/shaders/*.tesc",
-		"cw2/shaders/*.tese"
+		"src/shaders/*.vert",
+		"src/shaders/*.frag",
+		"src/shaders/*.comp",
+		"src/shaders/*.geom",
+		"src/shaders/*.tesc",
+		"src/shaders/*.tese"
 	}
 
 	kind "Utility"
-	location "cw2/shaders"
+	location "src/shaders"
 
 	files( shaders )
 
-	handle_glsl_files( "-O", "assets/cw2/shaders", {} )
+	handle_glsl_files( "-O", "assets/src/shaders", {} )
 
-project "cw2-bake"
+project "bake"
 	local sources = { 
-		"cw2-bake/**.cpp",
-		"cw2-bake/**.hpp",
-		"cw2-bake/**.hxx"
+		"bake/**.cpp",
+		"bake/**.hpp",
+		"bake/**.hxx"
 	}
 
 	kind "ConsoleApp"
-	location "cw2-bake"
+	location "bake"
 
 	files( sources )
 

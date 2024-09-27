@@ -122,7 +122,7 @@ void main()
 	//Finally, we have everything we need for the BRDF microfacet model
 	vec3 BRDF = L_diffuse + (DFG / (4 * nDotV * nDotL)); 
 
-	vec3 finalLightColour = L_ambient.rgb + (BRDF * lCol * nDotL);
+	vec3 finalLightColour = L_ambient.rgb + (BRDF * lightColour * nDotL);
 	//oColor = vec4(light.lightColour, 1.f);
 	//oColor = vec4(lightDirection, 1.f);
 	//oColor = vec4(viewDirection, 1.f);

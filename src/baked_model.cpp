@@ -8,7 +8,7 @@ namespace lut = labutils;
 
 namespace
 {
-	// See cw2-bake/main.cpp for more info
+	// See bake/main.cpp for more info
 	constexpr char kFileMagic[16] = "\0\0COMP5822Mmesh";
 	constexpr char kFileVariant[16] = "sc20mh-tan";
 
